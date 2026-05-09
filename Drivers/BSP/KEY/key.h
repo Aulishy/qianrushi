@@ -1,10 +1,12 @@
- * @author      HNUST
+ /* @author      HNUST
  * @version     V1.0
  * @date        2024-07-21
  * @brief       EBD-A23 HAL库 按键驱动头文件
- * @license     Copyright (c) 2024, 湖南科技大学信息与电气工程学院
  ****************************************************************************************************
  */
+
+#ifndef _KEY_H
+#define _KEY_H
 
 #include "./SYSTEM/sys/sys.h"
 

@@ -21,6 +21,8 @@
 #include "BSP/adc/adc.h"
 #include "BSP/TILT/tilt.h"
 #include "BSP/BEEP/beep.h"
+#include "BSP/KEY/key.h"
+#include "BSP/TIM3/tim3.h"
 
 #include "os.h"
 #include "cpu.h"
@@ -36,12 +38,14 @@ typedef unsigned int uint32_t;
 #define ADC_TASK_STK_SIZE      128     /* ADC采集任务堆栈 */
 #define UART_TASK_STK_SIZE     128     /* 串口通信任务堆栈 */
 #define DISPLAY_TASK_STK_SIZE  128     /* 显示任务堆栈 */
+#define KEY_TASK_STK_SIZE      128     /* 按键任务堆栈 */
 #define START_TASK_STK_SIZE    128     /* 启动任务堆栈 */
 
 /* 任务优先级（数字越小优先级越高） */
 #define ADC_TASK_PRIO          5       /* ADC采集任务优先级 */
 #define UART_TASK_PRIO         6       /* 串口通信任务优先级 */
 #define DISPLAY_TASK_PRIO      7       /* 显示任务优先级 */
+#define KEY_TASK_PRIO          8       /* 按键任务优先级 */
 #define START_TASK_PRIO        10      /* 启动任务优先级（最低） */
 
 /* ======================== 全局变量 ======================== */
@@ -50,6 +54,7 @@ typedef unsigned int uint32_t;
 OS_STK  g_adc_task_stk[ADC_TASK_STK_SIZE];
 OS_STK  g_uart_task_stk[UART_TASK_STK_SIZE];
 OS_STK  g_display_task_stk[DISPLAY_TASK_STK_SIZE];
+OS_STK  g_key_task_stk[KEY_TASK_STK_SIZE];
 OS_STK  g_start_task_stk[START_TASK_STK_SIZE];
 
 /* 系统运行标志 */
@@ -59,12 +64,16 @@ volatile uint8_t g_system_running = 1;
 volatile float   g_current_temp = 25.0f;    /* 当前温度 */
 volatile uint16_t g_current_light = 0;      /* 当前光照 */
 
+/* 显示模式状态机：0=时钟, 1=温度, 2=光照 */
+volatile uint8_t g_display_mode = 0;
+
 /* ======================== 函数声明 ======================== */
 
 static void TaskStart(void *pdata);      /* 启动任务 */
 static void TaskAdc(void *pdata);        /* ADC采集任务 */
 static void TaskUart(void *pdata);       /* 串口通信任务 */
 static void TaskDisplay(void *pdata);    /* 显示任务 */
+static void TaskKey(void *pdata);        /* 按键扫描任务 */
 static void ProcessCommand(uint8_t cmd); /* 处理命令 */
 static void SystemHardwareInit(void);    /* 硬件初始化 */
 
@@ -95,6 +104,8 @@ static void SystemHardwareInit(void)
     Adc2Init();
     TILT_Init(); 
 	beep_init();
+    KEY_Init();                         /* 初始化按键外设 */
+    gtim_timx_int_init(10000 - 1, 7200 - 1); /* 初始化TIM3定时器(提供1秒时钟跳动) */
     printf("\r\n========================================\r\n");
     printf("    uC/OS-II Multi-Task System Start\r\n");
     printf("    Temperature and Light Display\r\n");
@@ -118,6 +129,9 @@ static void TaskStart(void *pdata)
     OSTaskCreate(TaskDisplay, (void *)0, 
                  (OS_STK *)&g_display_task_stk[DISPLAY_TASK_STK_SIZE - 1], 
                  DISPLAY_TASK_PRIO);
+    OSTaskCreate(TaskKey, (void *)0, 
+                 (OS_STK *)&g_key_task_stk[KEY_TASK_STK_SIZE - 1], 
+                 KEY_TASK_PRIO);
     OSTaskSuspend(START_TASK_PRIO);
     OS_EXIT_CRITICAL();
 }
@@ -151,7 +165,7 @@ static void TaskUart(void *pdata)
     pdata = pdata;
     uint8_t rx_cmd;
     
-    printf("[UART Task] Ready, commands: T(温度), L(光照), S(状态), R(复位)\r\n");
+    printf("[UART Task] Ready, commands: T(Temp), L(Light), S(State), R(Reset)\r\n");
     
     while (g_system_running)
     {
@@ -172,13 +186,15 @@ static void TaskDisplay(void *pdata)
     pdata = pdata;
     uint8_t temp_int, temp_dec;
     uint8_t light_d1, light_d2, light_d3, light_d4;
-    uint32_t start_time, elapsed_time;
     
     printf("[Display Task] Start successful...\r\n");
     
     while (g_system_running)
     {
-        start_time = OSTimeGet();  /* 记录开始时间 */
+        /* 状态指示灯（低电平0为亮）：根据当前模式亮起对应的指示灯 */
+        LED1((g_display_mode == 0) ? 0 : 1);
+        LED2((g_display_mode == 1) ? 0 : 1);
+        LED3((g_display_mode == 2) ? 0 : 1);
         
         /* ========== 获取最新数据 ========== */
         temp_int = (uint8_t)g_current_temp;
@@ -189,39 +205,69 @@ static void TaskDisplay(void *pdata)
         light_d3 = (g_current_light % 100) / 10;
         light_d4 = g_current_light % 10;
         
-        /* ========== 刷新数码管（连续刷新多次，避免闪烁）========== */
+        /* ========== 刷新数码管 ========== */
         for(int refresh = 0; refresh < 10; refresh++)  /* 连续刷新10次 */
         {
-            /* 显示温度 */
-            SetLed(0, temp_int / 10);
-            delay_us(100);  /* 改用微秒延时 */
-            PortationDisplay(1, temp_int % 10);
-            delay_us(100);
-            SetLed(2, temp_dec);
-            delay_us(100);
+            if(g_display_mode == 0)  /* 模式0：显示实时时钟 */
+            {
+                SetLed(0, hour / 10);      delay_us(100);
+                SetLed(1, hour % 10);      delay_us(100);
+                SetLed(2, 10);             delay_us(100); /* 索引10对应 '-' */
+                SetLed(3, minute / 10);    delay_us(100);
+                SetLed(4, minute % 10);    delay_us(100);
+                SetLed(5, 10);             delay_us(100);
+                SetLed(6, second / 10);    delay_us(100);
+                SetLed(7, second % 10);    delay_us(100);
+            }
+            else if(g_display_mode == 1)  /* 模式1：显示温度 */
+            {
+                SetLed(0, temp_int / 10);           delay_us(100);
+                PortationDisplay(1, temp_int % 10); delay_us(100);
+                SetLed(2, temp_dec);                delay_us(100);
+            }
+            else if(g_display_mode == 2)  /* 模式2：显示光照强度 */
+            {
+                if(g_current_light >= 1000) {
+                    SetLed(4, light_d1);   delay_us(100);
+                }
+                SetLed(5, light_d2);       delay_us(100);
+                SetLed(6, light_d3);       delay_us(100);
+                SetLed(7, light_d4);       delay_us(100);
+            }
             
-            /* 显示光照 */
-            if(g_current_light < 1000)
-                SetLed(4, 12);
-            else
-                SetLed(4, light_d1);
-            delay_us(100);
-         
-            SetLed(5, light_d2);
-            delay_us(100);
-            SetLed(6, light_d3);
-            delay_us(100);
-            SetLed(7, light_d4);
-            delay_us(100);
-			LedValue(0x0000);
+            LedValue(0x0000); /* 清除段码，防止重影 */
         }
         
-        /* 计算已用时间，补充到20ms周期 */
-        elapsed_time = OSTimeGet() - start_time;
-        if(elapsed_time < 20)  /* 保证20ms刷新一次（50Hz）*/
+        /* 让出CPU给低优先级任务，并维持数码管动态刷新率 */
+        OSTimeDlyHMSM(0, 0, 0, 10);
+    }
+}
+
+/* ======================== 按键扫描任务 ======================== */
+
+static void TaskKey(void *pdata)
+{
+    pdata = pdata;
+    uint8_t key_val;
+    
+    printf("[KEY Task] Start successful...\r\n");
+    
+    while(g_system_running)
+    {
+        key_val = key_scan(0);  /* 扫描按键，不支持连按 */
+        
+        if(key_val == KEY1_PRES)
         {
-            OSTimeDlyHMSM(0, 0, 0, 20 - elapsed_time);
+            /* KEY1按下，循环切换显示模式 */
+            g_display_mode++;
+            if(g_display_mode > 2) g_display_mode = 0;
+            
+            printf("[State] Display Mode Changed: %d\r\n", g_display_mode);
+            beep_double(); /* 蜂鸣器滴嘀两声提示 */
         }
+        /* 后续可以扩展 KEY2, KEY3, KEY4 的功能... */
+        
+        OSTimeDlyHMSM(0, 0, 0, 20);  /* 每20ms扫描一次按键，配合驱动内部去抖 */
     }
 }
 
@@ -257,7 +303,7 @@ static void ProcessCommand(uint8_t cmd)
             break;
             
         default:
-            printf("Commands: T(温度), L(光照), S(状态), R(复位)\r\n");
+            printf("Commands: T(Temp), L(Light), S(State), R(Reset)\r\n");
             break;
     }
 }

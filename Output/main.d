@@ -65,6 +65,8 @@
 ..\..\output\main.o: ..\..\Drivers\BSP/adc/adc.h
 ..\..\output\main.o: ..\..\Drivers\BSP/TILT/tilt.h
 ..\..\output\main.o: ..\..\Drivers\BSP/BEEP/beep.h
+..\..\output\main.o: ..\..\Drivers\BSP/KEY/key.h
+..\..\output\main.o: ..\..\Drivers\BSP/TIM3/tim3.h
 ..\..\output\main.o: ..\..\Middlewares\uC-OS2\uC-OS2\Source\os.h
 ..\..\output\main.o: ..\..\Middlewares\uC-OS2\uC-OS2\Source\ucos_ii.h
 ..\..\output\main.o: ..\..\Middlewares\uC-OS2\uC-OS2\Cfg\Template\app_cfg.h

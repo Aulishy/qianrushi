@@ -1,8 +1,7 @@
- * @author      HNUST
+ /* @author      HNUST
  * @version     V1.0
  * @date        2024-07-21
  * @brief       EBD-A23 HAL库LED驱动头文件
- * @license     Copyright (c) 2024, 湖南科技大学信息与电气工程学院
  ****************************************************************************************************
  */
 
@@ -24,69 +23,69 @@
 
 /******************************************************************************************/
 /* LED端口定义 */
-#define LEDSEL(x) do{ x ? \
+#define LEDSEL(x) do{ (x) ? \
                       HAL_GPIO_WritePin(LEDSEL_GPIO_PORT, LEDSEL_GPIO_PIN, GPIO_PIN_SET) : \
                       HAL_GPIO_WritePin(LEDSEL_GPIO_PORT, LEDSEL_GPIO_PIN, GPIO_PIN_RESET); \
                   }while(0)      /* 设置LEDSEL电平：0表示控制数码管，1表示控制LED灯 */
-#define LEDSEL0(x) do{ x ? \
+#define LEDSEL0(x) do{ (x) ? \
                       HAL_GPIO_WritePin(LEDSEL_GPIO_PORT, GPIO_PIN_0, GPIO_PIN_SET) : \
                       HAL_GPIO_WritePin(LEDSEL_GPIO_PORT, GPIO_PIN_0, GPIO_PIN_RESET); \
                    }while(0)      /* 设置LEDSEL0电平 */
-#define LEDSEL1(x) do{ x ? \
+#define LEDSEL1(x) do{ (x) ? \
                       HAL_GPIO_WritePin(LEDSEL_GPIO_PORT, GPIO_PIN_1, GPIO_PIN_SET) : \
                       HAL_GPIO_WritePin(LEDSEL_GPIO_PORT, GPIO_PIN_1, GPIO_PIN_RESET); \
                    }while(0)      /* 设置LEDSEL1电平 */
-#define LEDSEL2(x) do{ x ? \
+#define LEDSEL2(x) do{ (x) ? \
                       HAL_GPIO_WritePin(LEDSEL_GPIO_PORT, GPIO_PIN_2, GPIO_PIN_SET) : \
                       HAL_GPIO_WritePin(LEDSEL_GPIO_PORT, GPIO_PIN_2, GPIO_PIN_RESET); \
                    }while(0)      /* 设置LEDSEL2电平 */
 
-#define LED1(x)   do{ x ? \
+#define LED1(x)   do{ (x) ? \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_8, GPIO_PIN_SET) : \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_8, GPIO_PIN_RESET); \
                   }while(0)      /* 设置LED1电平 */
-#define LED2(x)   do{ x ? \
+#define LED2(x)   do{ (x) ? \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_9, GPIO_PIN_SET) : \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_9, GPIO_PIN_RESET); \
                   }while(0)      /* 设置LED2电平 */
-#define LED3(x)   do{ x ? \
+#define LED3(x)   do{ (x) ? \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_10, GPIO_PIN_SET) : \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_10, GPIO_PIN_RESET); \
                   }while(0)      /* 设置LED3电平 */
-#define LED4(x)   do{ x ? \
+#define LED4(x)   do{ (x) ? \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_11, GPIO_PIN_SET) : \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_11, GPIO_PIN_RESET); \
                   }while(0)      /* 设置LED4电平 */
-#define LED5(x)   do{ x ? \
+#define LED5(x)   do{ (x) ? \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_12, GPIO_PIN_SET) : \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_12, GPIO_PIN_RESET); \
                   }while(0)      /* 设置LED5电平 */
-#define LED6(x)   do{ x ? \
+#define LED6(x)   do{ (x) ? \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_13, GPIO_PIN_SET) : \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_13, GPIO_PIN_RESET); \
                   }while(0)      /* 设置LED6电平 */
-#define LED7(x)   do{ x ? \
+#define LED7(x)   do{ (x) ? \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_14, GPIO_PIN_SET) : \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_14, GPIO_PIN_RESET); \
                   }while(0)      /* 设置LED7电平 */
-#define LED8(x)   do{ x ? \
+#define LED8(x)   do{ (x) ? \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_15, GPIO_PIN_SET) : \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_15, GPIO_PIN_RESET); \
                   }while(0)      /* 设置LED8电平 */
 
-#define MSGLED1(x)   do{ x ? \
+#define MSGLED1(x)   do{ (x) ? \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_0, GPIO_PIN_SET) : \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_0, GPIO_PIN_RESET); \
                   }while(0)      /* 设置消息LED1电平 */
-#define MSGLED2(x)   do{ x ? \
+#define MSGLED2(x)   do{ (x) ? \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_1, GPIO_PIN_SET) : \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_1, GPIO_PIN_RESET); \
                   }while(0)      /* 设置消息LED2电平 */
-#define MSGLED3(x)   do{ x ? \
+#define MSGLED3(x)   do{ (x) ? \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_2, GPIO_PIN_SET) : \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_2, GPIO_PIN_RESET); \
                   }while(0)      /* 设置消息LED3电平 */
-#define MSGLED4(x)   do{ x ? \
+#define MSGLED4(x)   do{ (x) ? \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_3, GPIO_PIN_SET) : \
                       HAL_GPIO_WritePin(LED_GPIO_PORT, GPIO_PIN_3, GPIO_PIN_RESET); \
                   }while(0)      /* 设置消息LED4电平 */
@@ -122,3 +121,7 @@
 void LED_Init(void);                                                                         /* 初始化 */
 void SetLed(unsigned char w, unsigned char value);
 void ToggleLED0(void);
+void LedValue(uint8_t value);
+void PortationDisplay(uint8_t w, uint8_t value);
+
+#endif /* _LED_H */
