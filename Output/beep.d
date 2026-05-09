@@ -60,3 +60,4 @@
 ..\..\output\beep.o: ..\..\Drivers\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_hcd.h
 ..\..\output\beep.o: ..\..\Drivers\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_mmc.h
 ..\..\output\beep.o: ..\..\Drivers\./SYSTEM/delay/delay.h
+..\..\output\beep.o: ..\..\Drivers\./BSP/TIM2/tim2.h

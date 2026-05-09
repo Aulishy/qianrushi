@@ -39,6 +39,7 @@ typedef unsigned int uint32_t;
 #define UART_TASK_STK_SIZE     128     /* 串口通信任务堆栈 */
 #define DISPLAY_TASK_STK_SIZE  128     /* 显示任务堆栈 */
 #define KEY_TASK_STK_SIZE      128     /* 按键任务堆栈 */
+#define BEEP_TASK_STK_SIZE     128     /* 蜂鸣器任务堆栈 */
 #define START_TASK_STK_SIZE    128     /* 启动任务堆栈 */
 
 /* 任务优先级（数字越小优先级越高） */
@@ -46,6 +47,7 @@ typedef unsigned int uint32_t;
 #define UART_TASK_PRIO         6       /* 串口通信任务优先级 */
 #define DISPLAY_TASK_PRIO      7       /* 显示任务优先级 */
 #define KEY_TASK_PRIO          8       /* 按键任务优先级 */
+#define BEEP_TASK_PRIO         9       /* 蜂鸣器任务优先级 */
 #define START_TASK_PRIO        10      /* 启动任务优先级（最低） */
 
 /* ======================== 全局变量 ======================== */
@@ -55,7 +57,11 @@ OS_STK  g_adc_task_stk[ADC_TASK_STK_SIZE];
 OS_STK  g_uart_task_stk[UART_TASK_STK_SIZE];
 OS_STK  g_display_task_stk[DISPLAY_TASK_STK_SIZE];
 OS_STK  g_key_task_stk[KEY_TASK_STK_SIZE];
+OS_STK  g_beep_task_stk[BEEP_TASK_STK_SIZE];
 OS_STK  g_start_task_stk[START_TASK_STK_SIZE];
+
+/* 信号量：用于触发音乐播放 */
+OS_EVENT *g_beep_sem;
 
 /* 系统运行标志 */
 volatile uint8_t g_system_running = 1;
@@ -74,6 +80,7 @@ static void TaskAdc(void *pdata);        /* ADC采集任务 */
 static void TaskUart(void *pdata);       /* 串口通信任务 */
 static void TaskDisplay(void *pdata);    /* 显示任务 */
 static void TaskKey(void *pdata);        /* 按键扫描任务 */
+static void TaskBeep(void *pdata);       /* 蜂鸣器播放任务 */
 static void ProcessCommand(uint8_t cmd); /* 处理命令 */
 static void SystemHardwareInit(void);    /* 硬件初始化 */
 
@@ -119,6 +126,9 @@ static void TaskStart(void *pdata)
     OS_CPU_SR cpu_sr = 0u;
     pdata = pdata;
     
+    /* 创建信号量 */
+    g_beep_sem = OSSemCreate(0);
+
     OS_ENTER_CRITICAL();
     OSTaskCreate(TaskAdc, (void *)0, 
                  (OS_STK *)&g_adc_task_stk[ADC_TASK_STK_SIZE - 1], 
@@ -132,6 +142,9 @@ static void TaskStart(void *pdata)
     OSTaskCreate(TaskKey, (void *)0, 
                  (OS_STK *)&g_key_task_stk[KEY_TASK_STK_SIZE - 1], 
                  KEY_TASK_PRIO);
+    OSTaskCreate(TaskBeep, (void *)0, 
+                 (OS_STK *)&g_beep_task_stk[BEEP_TASK_STK_SIZE - 1], 
+                 BEEP_TASK_PRIO);
     OSTaskSuspend(START_TASK_PRIO);
     OS_EXIT_CRITICAL();
 }
@@ -205,41 +218,38 @@ static void TaskDisplay(void *pdata)
         light_d3 = (g_current_light % 100) / 10;
         light_d4 = g_current_light % 10;
         
-        /* ========== 刷新数码管 ========== */
-        for(int refresh = 0; refresh < 10; refresh++)  /* 连续刷新10次 */
+        /* ========== 刷新数码管 (单次刷新，减小对其他任务的干扰) ========== */
+        if(g_display_mode == 0)  /* 模式0：显示实时时钟 */
         {
-            if(g_display_mode == 0)  /* 模式0：显示实时时钟 */
-            {
-                SetLed(0, hour / 10);      delay_us(100);
-                SetLed(1, hour % 10);      delay_us(100);
-                SetLed(2, 10);             delay_us(100); /* 索引10对应 '-' */
-                SetLed(3, minute / 10);    delay_us(100);
-                SetLed(4, minute % 10);    delay_us(100);
-                SetLed(5, 10);             delay_us(100);
-                SetLed(6, second / 10);    delay_us(100);
-                SetLed(7, second % 10);    delay_us(100);
+            SetLed(0, hour / 10);      delay_us(100);
+            SetLed(1, hour % 10);      delay_us(100);
+            SetLed(2, 10);             delay_us(100);
+            SetLed(3, minute / 10);    delay_us(100);
+            SetLed(4, minute % 10);    delay_us(100);
+            SetLed(5, 10);             delay_us(100);
+            SetLed(6, second / 10);    delay_us(100);
+            SetLed(7, second % 10);    delay_us(100);
+        }
+        else if(g_display_mode == 1)  /* 模式1：显示温度 */
+        {
+            SetLed(0, temp_int / 10);           delay_us(100);
+            PortationDisplay(1, temp_int % 10); delay_us(100);
+            SetLed(2, temp_dec);                delay_us(100);
+        }
+        else if(g_display_mode == 2)  /* 模式2：显示光照强度 */
+        {
+            if(g_current_light >= 1000) {
+                SetLed(4, light_d1);   delay_us(100);
             }
-            else if(g_display_mode == 1)  /* 模式1：显示温度 */
-            {
-                SetLed(0, temp_int / 10);           delay_us(100);
-                PortationDisplay(1, temp_int % 10); delay_us(100);
-                SetLed(2, temp_dec);                delay_us(100);
-            }
-            else if(g_display_mode == 2)  /* 模式2：显示光照强度 */
-            {
-                if(g_current_light >= 1000) {
-                    SetLed(4, light_d1);   delay_us(100);
-                }
-                SetLed(5, light_d2);       delay_us(100);
-                SetLed(6, light_d3);       delay_us(100);
-                SetLed(7, light_d4);       delay_us(100);
-            }
-            
-            LedValue(0x0000); /* 清除段码，防止重影 */
+            SetLed(5, light_d2);       delay_us(100);
+            SetLed(6, light_d3);       delay_us(100);
+            SetLed(7, light_d4);       delay_us(100);
         }
         
-        /* 让出CPU给低优先级任务，并维持数码管动态刷新率 */
-        OSTimeDlyHMSM(0, 0, 0, 10);
+        LedValue(0x0000); /* 清除段码，防止重影 */
+        
+        /* 让出微小的时间片，增加系统调度频率以获得更平滑的音频 */
+        OSTimeDlyHMSM(0, 0, 0, 2);
     }
 }
 
@@ -265,9 +275,35 @@ static void TaskKey(void *pdata)
             printf("[State] Display Mode Changed: %d\r\n", g_display_mode);
             beep_double(); /* 蜂鸣器滴嘀两声提示 */
         }
-        /* 后续可以扩展 KEY2, KEY3, KEY4 的功能... */
+        
+        if(key_val == KEY2_PRES)
+        {
+            /* KEY2按下，释放信号量通知播放任务 */
+            OSSemPost(g_beep_sem);
+            printf("[Action] Playing Do-Re-Mi...\r\n");
+        }
         
         OSTimeDlyHMSM(0, 0, 0, 20);  /* 每20ms扫描一次按键，配合驱动内部去抖 */
+    }
+}
+
+/* ======================== 蜂鸣器播放任务 ======================== */
+
+static void TaskBeep(void *pdata)
+{
+    uint8_t err;
+    pdata = pdata;
+    
+    while(g_system_running)
+    {
+        /* 永久等待信号量 */
+        OSSemPend(g_beep_sem, 0, &err);
+        
+        if(err == OS_ERR_NONE)
+        {
+            /* 调用底层驱动播放音阶 */
+            beep_play_scale();
+        }
     }
 }
 
