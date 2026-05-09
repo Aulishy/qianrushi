@@ -1,0 +1,22 @@
+# Keil MDK 编译产生的中间文件和不需要提交的文件
+*.o
+*.d
+*.crf
+*.map
+*.axf
+*.htm
+*.sct
+*.dep
+*.lnp
+*.iex
+*.bak
+*.uvgui.*
+*.uvguix.*
+*.uvoptx
+
+# 编译输出目录 (根据你的工程设置，可能叫 Listings 或 Objects)
+Listings/
+Objects/
+
+# JLink / 调试产生的文件
+*.JLinkScript
