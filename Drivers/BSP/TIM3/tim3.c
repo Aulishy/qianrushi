@@ -17,6 +17,10 @@ uint8_t clock_run = 1; // 默认正常时钟运行
 uint8_t count_finish = 0; 
 uint8_t cntd_display=0;
 
+/* 内部状态转换辅助 */
+static void Clock_HandleTick(void);
+static void Countdown_HandleTick(void);
+
 /**
  ****************************************************************************************************
  * @brief       通用定时器TIMX定时中断初始化
@@ -47,128 +51,81 @@ void GTIM_TIMX_INT_IRQHandler(void)
 {
     if(__HAL_TIM_GET_FLAG(&g_timx_handle, TIM_FLAG_UPDATE) != RESET)
     {
-        // ========= 正向时钟 =========
-        if(clock_run)
-        {
-            second++;
-            if(second >= 60)
-            {
-                second = 0;
-                minute++;
-                if(minute >= 60)
-                {
-                    minute = 0;
-                    hour++;
-                    if(hour >= 24) hour = 0;
-                }
-            }
-        }
-
-        // ========= 倒计时 =========
-        if(cntd_run)
-        {
-            if(cntd_s > 0)
-            {
-                cntd_s--;
-            }
-            else
-            {
-                if(cntd_m > 0)
-                {
-                    cntd_m--;
-                    cntd_s = 59;
-                }
-                else
-                {
-                    cntd_run = 0;
-                    clock_run = 1;      // 倒计时结束，恢复时钟运行
-                    count_finish = 1;
-					cntd_display=0;
-                    IWDG_Feed();
-                    //beep_play_doremi();  // 播放音乐
-                }
-            }
-        }
-
-        
-
+        Time_Update_Tick();
         __HAL_TIM_CLEAR_IT(&g_timx_handle, TIM_IT_UPDATE);
     }
 }
 
-/*****************************************************
-* 显示函数：倒计时模式优先显示，否则显示正常时钟
-******************************************************/
-void DisplayDigitalClock(void)
+/**
+ * @brief 处理每秒一次的时间更新逻辑（高内聚）
+ */
+void Time_Update_Tick(void)
 {
-    #define N 1
-    // 显示倒计时
-    if(cntd_display && (cntd_m>0 || cntd_s>0))
+    if(clock_run) Clock_HandleTick();
+    if(cntd_run)  Countdown_HandleTick();
+}
+
+static void Clock_HandleTick(void)
+{
+    if(++second >= 60)
     {
-        SetLed(0, 0);             delay_ms(N);
-        SetLed(1, 0);             delay_ms(N);
-        SetLed(2, 64);            delay_ms(N);
-        SetLed(3, cntd_m / 10);   delay_ms(N);
-        SetLed(4, cntd_m % 10);   delay_ms(N);
-        SetLed(5, 64);            delay_ms(N);
-        SetLed(6, cntd_s / 10);   delay_ms(N);
-        SetLed(7, cntd_s % 10);   delay_ms(N);
-    }
-    // 显示正常时间
-    else
-    {
-        SetLed(0, hour / 10);     delay_ms(N);
-        SetLed(1, hour % 10);     delay_ms(N);
-        SetLed(2, 64);            delay_ms(N);
-        SetLed(3, minute / 10);   delay_ms(N);
-        SetLed(4, minute % 10);   delay_ms(N);
-        SetLed(5, 64);            delay_ms(N);
-        SetLed(6, second / 10);   delay_ms(N);
-        SetLed(7, second % 10);   delay_ms(N);
+        second = 0;
+        if(++minute >= 60)
+        {
+            minute = 0;
+            if(++hour >= 24) hour = 0;
+        }
     }
 }
 
-/*****************************************************
-* 按键控制：KEY1+分钟 KEY2开始倒计时 KEY3恢复正常时钟
-******************************************************/
-void CountDown_Set(void)
+static void Countdown_HandleTick(void)
 {
-    uint8_t key = key_scan(0);
-
-    // KEY1：倒计时 +1 分钟（不启动倒计时，保持时钟运行）
-    if(key == KEY1_PRES)
+    if(cntd_s > 0)
     {
-        cntd_m++;
-        if(cntd_m >= 60) cntd_m = 0;
-        cntd_s = 0;
-        cntd_run = 0;      // 不启动倒计时
-        clock_run = 1;     // 保持时钟运行，让用户能看到设置的时间
-		cntd_display=1;
-        count_finish = 0;  // 复位完成标志
+        cntd_s--;
     }
-
-    // KEY2：开始倒计时
-    if(key == KEY2_PRES)
+    else if(cntd_m > 0)
     {
-        if(cntd_m > 0 || cntd_s > 0)
-        {
-            cntd_run = 1;    // 启动倒计时
-            clock_run = 0;   // 停止时钟
-            count_finish = 0; // 复位完成标志
-        }
+        cntd_m--;
+        cntd_s = 59;
     }
-
-    // KEY3：回到正常正向计时
-    if(key == KEY3_PRES)
+    else // 计时完成
     {
-        hour = 0;
-        minute = 0;
-        second = 0;
-        cntd_m = 0;
-        cntd_s = 0;
-		cntd_display=0;
         cntd_run = 0;
-        clock_run = 1;      // 启动正常时钟
-        count_finish = 0;   // 复位完成标志
+        clock_run = 1;
+        count_finish = 1;
+        cntd_display = 0;
+        IWDG_Feed();
+    }
+}
+
+/**
+ * @brief UI显示刷新（剥离了延时，适合在任务循环中调用）
+ */
+void Display_Refresh(void)
+{
+    if(cntd_display && (cntd_m > 0 || cntd_s > 0))
+    {
+        /* 显示内容： 00-MM-SS */
+        SetLed(0, 0);            
+        SetLed(1, 0);            
+        SetLed(2, 10); // 杠
+        SetLed(3, cntd_m / 10);  
+        SetLed(4, cntd_m % 10);  
+        SetLed(5, 10);
+        SetLed(6, cntd_s / 10);  
+        SetLed(7, cntd_s % 10);  
+    }
+    else
+    {
+        /* 显示正常时钟 HH-MM-SS */
+        SetLed(0, hour / 10);    
+        SetLed(1, hour % 10);    
+        SetLed(2, 10);
+        SetLed(3, minute / 10);  
+        SetLed(4, minute % 10);  
+        SetLed(5, 10);
+        SetLed(6, second / 10);  
+        SetLed(7, second % 10);  
     }
 }

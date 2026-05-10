@@ -12,20 +12,34 @@
 
 extern TIM_HandleTypeDef g_timx_handle;
 
-/* 实时时钟 */
-extern uint8_t hour, minute, second;
+/* 时间管理结构体 */
+typedef struct {
+    uint8_t hour;
+    uint8_t min;
+    uint8_t sec;
+} SysTime_t;
 
-/* 可调倒计时 */
+typedef struct {
+    uint8_t m;
+    uint8_t s;
+    uint8_t is_running;
+    uint8_t is_display_mode; // 0:正常时钟, 1:倒计时
+    uint8_t is_finished;
+} Countdown_t;
+
+/* 全局状态变量 */
+extern uint8_t hour, minute, second;
 extern uint8_t cntd_m, cntd_s;
 extern uint8_t cntd_run;
+extern uint8_t cntd_display;
+extern uint8_t clock_run;
+extern uint8_t count_finish;
 
-/* 提醒标志 */
-extern uint8_t remind_5min_flag;
-extern uint8_t remind_1min_flag;
-
+/* 功能接口 */
 void gtim_timx_int_init(uint16_t arr, uint16_t psc);
-void DisplayDigitalClock(void);
-void CountDown_Set(void);
-void Check_Reminder(void);  // 新增：检查倒计时提醒
+
+/* 高内聚逻辑控制 */
+void Time_Update_Tick(void);               // ISR调用：处理秒级逻辑
+void Display_Refresh(void);                // 任务调用：处理UI刷新
 
 #endif

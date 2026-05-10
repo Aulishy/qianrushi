@@ -204,11 +204,10 @@ static void TaskDisplay(void *pdata)
     
     while (g_system_running)
     {
-        /* 状态指示灯（低电平0为亮）：根据当前模式亮起对应的指示灯 */
+        /* 状态指示灯（低电平0为亮）：模式0亮LED1，模式1(合并显示)亮LED2 */
         LED1((g_display_mode == 0) ? 0 : 1);
         LED2((g_display_mode == 1) ? 0 : 1);
-        LED3((g_display_mode == 2) ? 0 : 1);
-        
+
         /* ========== 获取最新数据 ========== */
         temp_int = (uint8_t)g_current_temp;
         temp_dec = (uint8_t)((g_current_temp - temp_int) * 10);
@@ -219,35 +218,50 @@ static void TaskDisplay(void *pdata)
         light_d4 = g_current_light % 10;
         
         /* ========== 刷新数码管 (单次刷新，减小对其他任务的干扰) ========== */
-        if(g_display_mode == 0)  /* 模式0：显示实时时钟 */
+        if(g_display_mode == 0)  
         {
-            SetLed(0, hour / 10);      delay_us(100);
-            SetLed(1, hour % 10);      delay_us(100);
-            SetLed(2, 10);             delay_us(100);
-            SetLed(3, minute / 10);    delay_us(100);
-            SetLed(4, minute % 10);    delay_us(100);
-            SetLed(5, 10);             delay_us(100);
-            SetLed(6, second / 10);    delay_us(100);
-            SetLed(7, second % 10);    delay_us(100);
+            if(cntd_display) /* 显示倒计时界面: 00-MM-SS */
+            {
+                SetLed(0, 0);              delay_us(100);
+                SetLed(1, 0);              delay_us(100);
+                SetLed(2, 10);             delay_us(100);
+                SetLed(3, cntd_m / 10);    delay_us(100);
+                SetLed(4, cntd_m % 10);    delay_us(100);
+                SetLed(5, 10);             delay_us(100);
+                SetLed(6, cntd_s / 10);    delay_us(100);
+                SetLed(7, cntd_s % 10);    delay_us(100);
+            }
+            else /* 显示正常时钟界面: HH-MM-SS */
+            {
+                SetLed(0, hour / 10);      delay_us(100);
+                SetLed(1, hour % 10);      delay_us(100);
+                SetLed(2, 10);             delay_us(100);
+                SetLed(3, minute / 10);    delay_us(100);
+                SetLed(4, minute % 10);    delay_us(100);
+                SetLed(5, 10);             delay_us(100);
+                SetLed(6, second / 10);    delay_us(100);
+                SetLed(7, second % 10);    delay_us(100);
+            }
         }
-        else if(g_display_mode == 1)  /* 模式1：显示温度 */
+        else if(g_display_mode == 1)  /* 模式1：同时显示温度和光照 */
         {
+            /* 左侧显示温度 (位0-2) */
             SetLed(0, temp_int / 10);           delay_us(100);
             PortationDisplay(1, temp_int % 10); delay_us(100);
             SetLed(2, temp_dec);                delay_us(100);
+
+            /* 中间显示分隔符 '-' (位3) */
+            SetLed(3, 10);                      delay_us(100); 
+
+            /* 右侧显示光照强度 (位4-7) */
+            SetLed(4, light_d1);                delay_us(100);
+            SetLed(5, light_d2);                delay_us(100);
+            SetLed(6, light_d3);                delay_us(100);
+            SetLed(7, light_d4);                delay_us(100);
         }
-        else if(g_display_mode == 2)  /* 模式2：显示光照强度 */
-        {
-            if(g_current_light >= 1000) {
-                SetLed(4, light_d1);   delay_us(100);
-            }
-            SetLed(5, light_d2);       delay_us(100);
-            SetLed(6, light_d3);       delay_us(100);
-            SetLed(7, light_d4);       delay_us(100);
-        }
-        
-        LedValue(0x0000); /* 清除段码，防止重影 */
-        
+
+        LedValue(0x00); /* 清除段码，防止重影 */
+
         /* 让出微小的时间片，增加系统调度频率以获得更平滑的音频 */
         OSTimeDlyHMSM(0, 0, 0, 2);
     }
@@ -268,19 +282,59 @@ static void TaskKey(void *pdata)
         
         if(key_val == KEY1_PRES)
         {
-            /* KEY1按下，循环切换显示模式 */
-            g_display_mode++;
-            if(g_display_mode > 2) g_display_mode = 0;
-            
+            /* KEY1按下：切换显示模式 (0:时钟/倒计时, 1:环境数据合并显示) */
+            g_display_mode = (g_display_mode == 0) ? 1 : 0;
+             
             printf("[State] Display Mode Changed: %d\r\n", g_display_mode);
-            beep_double(); /* 蜂鸣器滴嘀两声提示 */
+            beep_double(); /* 蜂鸣器提示 */
         }
         
         if(key_val == KEY2_PRES)
         {
-            /* KEY2按下，释放信号量通知播放任务 */
+            /* KEY2按下：通知蜂鸣器任务播放，同时执行系统重置 */
             OSSemPost(g_beep_sem);
-            printf("[Action] Playing Do-Re-Mi...\r\n");
+
+            /* 核心逻辑：倒计时置零并恢复正向计时 */
+            cntd_m = 0;
+            cntd_s = 0;
+            hour = 0; minute = 0; second = 0; /* 时钟也同步归零 */
+            cntd_run = 0;
+            clock_run = 1;         /* 开启正向计时 */
+            cntd_display = 0;      /* 切换回正向时钟显示 */
+            count_finish = 0;      /* 复位计时完成标志 */
+            g_display_mode = 0;    /* 确保显示模式回到时间界面 */
+
+            printf("[Action] Playing Music & Reset System to Forward Timing\r\n");
+        }
+
+        if(key_val == KEY3_PRES)
+        {
+            /* KEY3按下：倒计时加一分钟 */
+            cntd_m++;
+            if(cntd_m >= 60) cntd_m = 0;
+            cntd_s = 0;
+            cntd_display = 1;      /* 切换到倒计时显示内容 */
+            g_display_mode = 0;    /* 强制切换显示模式到时钟/倒计时界面 */
+            
+            printf("[Timer] Add 1 min, Total: %d min\r\n", cntd_m);
+            beep_short();          /* 短鸣一声提示修改成功 */
+        }
+
+        if(key_val == KEY4_PRES)
+        {
+            /* KEY4按下：暂停/继续倒计时切换 */
+            if (cntd_run)
+            {
+                cntd_run = 0;      /* 暂停 */
+                printf("[Timer] Countdown Paused!\r\n");
+            }
+            else if (cntd_m > 0 || cntd_s > 0)
+            {
+                cntd_run = 1;      /* 继续/开始 */
+                clock_run = 0;     /* 倒计时期间停止正向时钟 */
+                printf("[Timer] Countdown Started/Resumed!\r\n");
+            }
+            beep_short();          /* 提供按键反馈音 */
         }
         
         OSTimeDlyHMSM(0, 0, 0, 20);  /* 每20ms扫描一次按键，配合驱动内部去抖 */

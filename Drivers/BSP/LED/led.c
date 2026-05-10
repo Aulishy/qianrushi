@@ -91,9 +91,6 @@ void LedValue(uint8_t value)
 ****************************************/
 void SetLed(uint8_t w, uint8_t value)
 {
-//    LEDSEL0(w % 2);
-//    LEDSEL1(w / 2 % 2);
-//    LEDSEL2(w / 4);
     GPIOB->ODR &= ~(0x07 << 0);
     GPIOB->ODR |= (w & 0x07);
     LedValue(segTable[value]);
@@ -106,8 +103,7 @@ void SetLed(uint8_t w, uint8_t value)
 ****************************************/
 void PortationDisplay(uint8_t w, uint8_t value)
 {
-    LEDSEL0(w % 2);
-    LEDSEL1(w / 2 % 2);
-    LEDSEL2(w / 4);
+    GPIOB->ODR &= ~(0x07 << 0);
+    GPIOB->ODR |= (w & 0x07);
     LedValue(segTable[value] + 0x80);
 }
