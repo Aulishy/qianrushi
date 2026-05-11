@@ -58,4 +58,16 @@
 ..\..\output\stm32f1xx_it.o: ..\..\Drivers\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_hcd.h
 ..\..\output\stm32f1xx_it.o: ..\..\Drivers\STM32F1xx_HAL_Driver\Inc\stm32f1xx_hal_mmc.h
 ..\..\output\stm32f1xx_it.o: ..\..\User\stm32f1xx_it.h
+..\..\output\stm32f1xx_it.o: ..\..\Middlewares\uC-OS2\uC-OS2\Source\os.h
+..\..\output\stm32f1xx_it.o: ..\..\Middlewares\uC-OS2\uC-OS2\Source\ucos_ii.h
+..\..\output\stm32f1xx_it.o: ..\..\Middlewares\uC-OS2\uC-OS2\Cfg\Template\app_cfg.h
+..\..\output\stm32f1xx_it.o: D:\Program Files\Keil5\ARM\ARMCC\Bin\..\include\stdarg.h
+..\..\output\stm32f1xx_it.o: D:\Program Files\Keil5\ARM\ARMCC\Bin\..\include\stdio.h
+..\..\output\stm32f1xx_it.o: ..\..\Middlewares\uC-OS2\uC-CPU\ARM-Cortex-M\ARMv7-M\ARM\cpu.h
+..\..\output\stm32f1xx_it.o: ..\..\Middlewares\uC-OS2\uC-CPU\cpu_def.h
+..\..\output\stm32f1xx_it.o: ..\..\Middlewares\uC-OS2\uC-CPU\Cfg\Template\cpu_cfg.h
+..\..\output\stm32f1xx_it.o: ..\..\Middlewares\uC-OS2\uC-OS2\Cfg\Template\os_cfg.h
+..\..\output\stm32f1xx_it.o: ..\..\Middlewares\uC-OS2\uC-OS2\Ports\ARM-Cortex-M\ARMv7-M\ARM\os_cpu.h
+..\..\output\stm32f1xx_it.o: ..\..\Middlewares\uC-OS2\uC-OS2\Source\os_trace.h
+..\..\output\stm32f1xx_it.o: ..\..\Drivers\./SYSTEM/usart/usart.h
 ..\..\output\stm32f1xx_it.o: ..\..\Drivers\./SYSTEM/sys/sys.h

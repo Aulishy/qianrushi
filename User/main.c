@@ -40,9 +40,11 @@ typedef unsigned int uint32_t;
 #define DISPLAY_TASK_STK_SIZE  128     /* 显示任务堆栈 */
 #define KEY_TASK_STK_SIZE      128     /* 按键任务堆栈 */
 #define BEEP_TASK_STK_SIZE     128     /* 蜂鸣器任务堆栈 */
+#define TILT_TASK_STK_SIZE     128     /* 倾斜检测任务堆栈 */
 #define START_TASK_STK_SIZE    128     /* 启动任务堆栈 */
 
 /* 任务优先级（数字越小优先级越高） */
+#define TILT_TASK_PRIO          4       /* 倾斜检测任务优先级 */
 #define ADC_TASK_PRIO          5       /* ADC采集任务优先级 */
 #define UART_TASK_PRIO         6       /* 串口通信任务优先级 */
 #define DISPLAY_TASK_PRIO      7       /* 显示任务优先级 */
@@ -58,6 +60,7 @@ OS_STK  g_uart_task_stk[UART_TASK_STK_SIZE];
 OS_STK  g_display_task_stk[DISPLAY_TASK_STK_SIZE];
 OS_STK  g_key_task_stk[KEY_TASK_STK_SIZE];
 OS_STK  g_beep_task_stk[BEEP_TASK_STK_SIZE];
+OS_STK  g_tilt_task_stk[TILT_TASK_STK_SIZE];
 OS_STK  g_start_task_stk[START_TASK_STK_SIZE];
 
 /* 信号量：用于触发音乐播放 */
@@ -81,6 +84,7 @@ static void TaskUart(void *pdata);       /* 串口通信任务 */
 static void TaskDisplay(void *pdata);    /* 显示任务 */
 static void TaskKey(void *pdata);        /* 按键扫描任务 */
 static void TaskBeep(void *pdata);       /* 蜂鸣器播放任务 */
+static void TaskTilt(void *pdata);       /* 倾斜监控任务 */
 static void ProcessCommand(uint8_t cmd); /* 处理命令 */
 static void SystemHardwareInit(void);    /* 硬件初始化 */
 
@@ -136,6 +140,9 @@ static void TaskStart(void *pdata)
     OSTaskCreate(TaskUart, (void *)0, 
                  (OS_STK *)&g_uart_task_stk[UART_TASK_STK_SIZE - 1], 
                  UART_TASK_PRIO);
+    OSTaskCreate(TaskTilt, (void *)0, 
+                 (OS_STK *)&g_tilt_task_stk[TILT_TASK_STK_SIZE - 1], 
+                 TILT_TASK_PRIO);
     OSTaskCreate(TaskDisplay, (void *)0, 
                  (OS_STK *)&g_display_task_stk[DISPLAY_TASK_STK_SIZE - 1], 
                  DISPLAY_TASK_PRIO);
@@ -184,8 +191,8 @@ static void TaskUart(void *pdata)
     {
         if (g_usart_rx_sta & 0x8000)  /* 收到完整命令 */
         {
-            rx_cmd = g_usart_rx_buf[0];
-            g_usart_rx_sta = 0;
+            rx_cmd = g_usart_rx_buf[0]; /* 获取指令第一个字符 */
+            g_usart_rx_sta = 0;         /* 必须清空状态位才能接收下一条指令 */
             ProcessCommand(rx_cmd);
         }
         OSTimeDlyHMSM(0, 0, 0, 50);
@@ -358,6 +365,46 @@ static void TaskBeep(void *pdata)
             /* 调用底层驱动播放音阶 */
             beep_play_scale();
         }
+    }
+}
+
+/* ======================== 倾斜监控任务 ======================== */
+
+static void TaskTilt(void *pdata)
+{
+    pdata = pdata;
+    uint8_t current_state;
+    uint16_t debug_cnt = 0;
+    uint8_t last_state = TILT_Read(); /* 使用真实的驱动接口记录初始状态 (1平放, 0倾斜) */
+    
+    printf("[TILT Task] Monitoring state changes...\r\n");
+
+    while (g_system_running)
+    {
+        /* 调用 tilt.c 提供的读取接口 */
+        current_state = TILT_Read();
+
+        /* 检查状态是否发生了改变 */
+        if (current_state != last_state)
+        {
+            /* 调试打印：确认捕获到跳变 */
+            printf("[TILT] State Change Detected! New State: %d\r\n", current_state);
+            
+            MSGLED2(1);               /* 点亮 PE1 消息指示灯 (1为亮) */
+            OSTimeDlyHMSM(0, 0, 0, 500); /* 保持 500 毫秒 */
+            MSGLED2(0);               /* 熄灭指示灯 (0为灭) */
+            
+            last_state = current_state;  /* 更新上一次状态记录 */
+        }
+        
+        /* 每隔约 2.5 秒打印一次原始状态 (50ms * 50) */
+        if (++debug_cnt >= 50)
+        {
+            printf("[TILT Debug] Raw PB5 Sensor State: %d\r\n", current_state);
+            debug_cnt = 0;
+        }
+
+        OSTimeDlyHMSM(0, 0, 0, 50);      /* 50ms 轮询一次 */
     }
 }
 
