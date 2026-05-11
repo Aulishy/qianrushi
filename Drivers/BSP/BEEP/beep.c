@@ -170,3 +170,12 @@ void beep_play_scale(void)
         beep_play_note(scale_freqs[i], 500); // 延长音符持续时间到 500ms
     }
 }
+
+/**
+ * @brief 播放尖锐的单次报警音
+ */
+void beep_alarm(void)
+{
+    /* 播放 1000Hz 的高频尖锐声音，持续 200ms */
+    beep_play_note(1000, 200);
+}

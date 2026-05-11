@@ -6,7 +6,6 @@
  ****************************************************************************************************
  */
 #include "./BSP/KEY/key.h"
-#include "./SYSTEM/delay/delay.h"
 
 
 /**
@@ -41,27 +40,44 @@ void KEY_Init(void)
 */
 uint8_t key_scan(uint8_t mode)
 {
-    static uint8_t key_up = 1;  /* 按键松开标志 */
+    /* 每个按键的历史状态移位寄存器，初始全为1(未按下) */
+    static uint8_t key_history[4] = {0xFF, 0xFF, 0xFF, 0xFF};
+    /* 每个按键的确认状态，初始为1(松开) */
+    static uint8_t key_state[4]   = {1, 1, 1, 1}; 
+    /* 记录按键事件是否已经上报过(用于不支持连按模式) */
+    static uint8_t key_sent[4]    = {0, 0, 0, 0}; 
+    
     uint8_t keyval = 0;
+    uint8_t current_pins[4];
+    int i;
 
-    if (mode) key_up = 1;       /* 支持连按 */
+    /* 1. 获取本次(每5ms一次)的实时引脚电平 */
+    current_pins[0] = KEY1;
+    current_pins[1] = KEY2;
+    current_pins[2] = KEY3;
+    current_pins[3] = KEY4;
 
-    if (key_up && (KEY1 == 0 || KEY2 == 0 || KEY3 == 0 ||KEY4 == 0))  
-    {                           /* 按键松开标志为1, 且有任意一个按键按下 */
-        delay_ms(10);           /* 延时去抖动 */
-        key_up = 0;
-
-        if (KEY1 == 0)  keyval = KEY1_PRES;
-
-        if (KEY2 == 0)  keyval = KEY2_PRES;
-
-        if (KEY3 == 0)  keyval = KEY3_PRES;
-
-        if (KEY4 == 0)  keyval = KEY4_PRES;
-    }
-    else if (KEY1 == 1 && KEY2 == 1 && KEY3 == 1 && KEY4 == 1) 
-    {                           /* 没有任何按键按下, 标记按键松开 */
-        key_up = 1;
+    /* 2. 状态机与移位历史记录判断 */
+    for (i = 0; i < 4; i++)
+    {
+        /* 将新采样值移入最低位 */
+        key_history[i] = (key_history[i] << 1) | current_pins[i];
+        
+        /* 判断连续4次采样(掩码0x0F，即二进制 0000 1111) */
+        if ((key_history[i] & 0x0F) == 0x00)       /* 连续4次低电平，确认按键稳定按下 */
+            key_state[i] = 0; 
+        else if ((key_history[i] & 0x0F) == 0x0F)  /* 连续4次高电平，确认按键稳定松开 */
+        {
+            key_state[i] = 1; 
+            key_sent[i] = 0;  /* 按键松开后，复位发送标志 */
+        }
+        
+        /* 3. 产生键值 */
+        if (key_state[i] == 0 && (mode == 1 || key_sent[i] == 0))
+        {
+            keyval = i + 1;   /* 对应宏定义 KEY1_PRES=1, KEY2_PRES=2 ... */
+            key_sent[i] = 1;  /* 标记该按键动作已发送 */
+        }
     }
 
     return keyval;              /* 返回键值 */

@@ -22,5 +22,6 @@ void beep_double(void);         // 短鸣两声
 void beep_long(void);           // 长鸣一声
 void beep_play_doremi(void);    // 播放do re mi音乐
 void beep_play_scale(void);     // 播放 do re mi fa so la xi
+void beep_alarm(void);          // 播放尖锐报警音
 
 #endif

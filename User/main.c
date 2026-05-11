@@ -40,11 +40,11 @@ typedef unsigned int uint32_t;
 #define DISPLAY_TASK_STK_SIZE  128     /* 显示任务堆栈 */
 #define KEY_TASK_STK_SIZE      128     /* 按键任务堆栈 */
 #define BEEP_TASK_STK_SIZE     128     /* 蜂鸣器任务堆栈 */
-#define TILT_TASK_STK_SIZE     128     /* 倾斜检测任务堆栈 */
+#define ALARM_TASK_STK_SIZE    128     /* 异常报警任务堆栈 */
 #define START_TASK_STK_SIZE    128     /* 启动任务堆栈 */
 
 /* 任务优先级（数字越小优先级越高） */
-#define TILT_TASK_PRIO          4       /* 倾斜检测任务优先级 */
+#define ALARM_TASK_PRIO         4       /* 异常报警任务优先级 */
 #define ADC_TASK_PRIO          5       /* ADC采集任务优先级 */
 #define UART_TASK_PRIO         6       /* 串口通信任务优先级 */
 #define DISPLAY_TASK_PRIO      7       /* 显示任务优先级 */
@@ -60,7 +60,7 @@ OS_STK  g_uart_task_stk[UART_TASK_STK_SIZE];
 OS_STK  g_display_task_stk[DISPLAY_TASK_STK_SIZE];
 OS_STK  g_key_task_stk[KEY_TASK_STK_SIZE];
 OS_STK  g_beep_task_stk[BEEP_TASK_STK_SIZE];
-OS_STK  g_tilt_task_stk[TILT_TASK_STK_SIZE];
+OS_STK  g_alarm_task_stk[ALARM_TASK_STK_SIZE];
 OS_STK  g_start_task_stk[START_TASK_STK_SIZE];
 
 /* 信号量：用于触发音乐播放 */
@@ -76,6 +76,9 @@ volatile uint16_t g_current_light = 0;      /* 当前光照 */
 /* 显示模式状态机：0=时钟, 1=温度, 2=光照 */
 volatile uint8_t g_display_mode = 0;
 
+/* AI 环境异常标志：0=正常，1=异常 */
+volatile uint8_t g_ai_abnormal = 0;
+
 /* ======================== 函数声明 ======================== */
 
 static void TaskStart(void *pdata);      /* 启动任务 */
@@ -84,9 +87,10 @@ static void TaskUart(void *pdata);       /* 串口通信任务 */
 static void TaskDisplay(void *pdata);    /* 显示任务 */
 static void TaskKey(void *pdata);        /* 按键扫描任务 */
 static void TaskBeep(void *pdata);       /* 蜂鸣器播放任务 */
-static void TaskTilt(void *pdata);       /* 倾斜监控任务 */
+static void TaskAlarm(void *pdata);      /* 异常报警任务 */
 static void ProcessCommand(uint8_t cmd); /* 处理命令 */
 static void SystemHardwareInit(void);    /* 硬件初始化 */
+static uint8_t KNN_Predict(float current_temp, uint16_t current_light, uint8_t current_tilt); /* KNN预测分类算法 */
 
 /* ======================== 主函数 ======================== */
 
@@ -140,9 +144,9 @@ static void TaskStart(void *pdata)
     OSTaskCreate(TaskUart, (void *)0, 
                  (OS_STK *)&g_uart_task_stk[UART_TASK_STK_SIZE - 1], 
                  UART_TASK_PRIO);
-    OSTaskCreate(TaskTilt, (void *)0, 
-                 (OS_STK *)&g_tilt_task_stk[TILT_TASK_STK_SIZE - 1], 
-                 TILT_TASK_PRIO);
+    OSTaskCreate(TaskAlarm, (void *)0, 
+                 (OS_STK *)&g_alarm_task_stk[ALARM_TASK_STK_SIZE - 1], 
+                 ALARM_TASK_PRIO);
     OSTaskCreate(TaskDisplay, (void *)0, 
                  (OS_STK *)&g_display_task_stk[DISPLAY_TASK_STK_SIZE - 1], 
                  DISPLAY_TASK_PRIO);
@@ -156,11 +160,82 @@ static void TaskStart(void *pdata)
     OS_EXIT_CRITICAL();
 }
 
+/* ======================== 机器学习：KNN 算法实现 ======================== */
+
+#define KNN_K 3  /* 设定 K 值为 3（选取最近的 3 个邻居进行投票） */
+
+typedef struct {
+    float temp;     /* 特征 1：温度 */
+    float light;    /* 特征 2：光照 */
+    float tilt;     /* 特征 3：倾斜 (1为平放, 0为倾斜) */
+    uint8_t label;  /* 分类标签：0=正常环境(Normal), 1=异常环境(Abnormal) */
+} KNN_Sample;
+
+/* 预定义的先验数据集（AI 经验库） */
+static const KNN_Sample g_knn_dataset[] = {
+    /* 正常场景库 (标签 0) */
+    {25.0f,  100.0f, 1.0f, 0}, /* 室内舒适温度，正常光照，平稳 */
+    {20.0f,  500.0f, 1.0f, 0}, /* 较凉环境，强光，平稳 */
+    {30.0f,   50.0f, 1.0f, 0}, /* 偏热环境，弱光，平稳 */
+    {25.0f,    0.0f, 1.0f, 0}, /* 室内舒适温度，无光(夜间)，平稳 */
+    
+    /* 异常场景库 (标签 1) */
+    {25.0f,  100.0f, 0.0f, 1}, /* 环境正常，但设备跌落/倾斜 */
+    {45.0f, 2000.0f, 1.0f, 1}, /* 高温且强光 (疑似设备燃烧或烈日暴晒) */
+    {40.0f,   50.0f, 1.0f, 1}, /* 高温且弱光 (异常闷热/设备内部过热故障) */
+    {20.0f,    0.0f, 0.0f, 1}  /* 夜间设备被碰倒跌落 */
+};
+#define DATASET_SIZE (sizeof(g_knn_dataset) / sizeof(g_knn_dataset[0]))
+
+/* KNN分类器：返回预测的标签 */
+static uint8_t KNN_Predict(float current_temp, uint16_t current_light, uint8_t current_tilt)
+{
+    float dists[DATASET_SIZE];
+    uint8_t labels[DATASET_SIZE];
+    int i, j;
+    
+    /* 1. 计算当前环境特征到数据库中每一个样本的“欧式距离平方” */
+    for (i = 0; i < DATASET_SIZE; i++)
+    {
+        /* 特征归一化缩放：防止量级差异（光照几千，倾斜只有1）导致某一特征主导距离 */
+        float norm_temp  = (current_temp - g_knn_dataset[i].temp) / 50.0f;         /* 温度按50度归一化 */
+        float norm_light = ((float)current_light - g_knn_dataset[i].light) / 2000.0f; /* 光照按2000归一化 */
+        float norm_tilt  = ((float)current_tilt - g_knn_dataset[i].tilt) * 2.0f;      /* 倾斜非0即1，赋予较大权重 */
+        
+        dists[i] = (norm_temp * norm_temp) + (norm_light * norm_light) + (norm_tilt * norm_tilt);
+        labels[i] = g_knn_dataset[i].label;
+    }
+    
+    /* 2. 排序选出距离最近的 K 个邻居 (使用冒泡排序找出前K个最小值) */
+    for (i = 0; i < KNN_K; i++)
+    {
+        for (j = i + 1; j < DATASET_SIZE; j++)
+        {
+            if (dists[j] < dists[i])
+            {
+                float temp_dist = dists[i]; dists[i] = dists[j]; dists[j] = temp_dist;
+                uint8_t temp_label = labels[i]; labels[i] = labels[j]; labels[j] = temp_label;
+            }
+        }
+    }
+    
+    /* 3. 少数服从多数：对最近的 K 个样本标签进行投票 */
+    uint8_t abnormal_votes = 0;
+    for (i = 0; i < KNN_K; i++)
+    {
+        if (labels[i] == 1) abnormal_votes++;
+    }
+    
+    return (abnormal_votes > (KNN_K / 2)) ? 1 : 0; /* 票数过半判定为异常 */
+}
+
 /* ======================== ADC采集任务 ======================== */
 
 static void TaskAdc(void *pdata)
 {
     pdata = pdata;
+    uint8_t current_tilt;
+    uint8_t ai_prediction;
     
     printf("[ADC Task] Start successful...\r\n");
     
@@ -172,7 +247,27 @@ static void TaskAdc(void *pdata)
         /* 采集光照 */
         g_current_light = GetLightAdc(14);  /* 使用通道14采集光照 */
         
+        /* 采集倾斜状态 (修正：底层驱动0为平放，1为倾斜；KNN期望1为平稳，0为异常。因此需取反) */
+        current_tilt = (TILT_Read() == 0) ? 1 : 0;
+        
         printf("[ADC] Temp: %.1f C, Light: %d\r\n", g_current_temp, g_current_light);
+        
+        /* --- 执行 AI 算法融合评估 --- */
+        ai_prediction = KNN_Predict(g_current_temp, g_current_light, current_tilt);
+        
+        /* 只有在状态发生切换时才进行打印提示，避免串口刷屏 */
+        if (ai_prediction != g_ai_abnormal)
+        {
+            g_ai_abnormal = ai_prediction; /* 更新全局异常标志 */
+            if (g_ai_abnormal == 1)
+            {
+                printf("  >>> [AI ALARM] KNN Classified as ABNORMAL Environment! <<<\r\n");
+            }
+            else
+            {
+                printf("  >>> [AI INFO] Environment Recovered to NORMAL. <<<\r\n");
+            }
+        }
         
         OSTimeDlyHMSM(0, 0, 1, 0);  /* 每1秒采集一次 */
     }
@@ -293,13 +388,11 @@ static void TaskKey(void *pdata)
             g_display_mode = (g_display_mode == 0) ? 1 : 0;
              
             printf("[State] Display Mode Changed: %d\r\n", g_display_mode);
-            beep_double(); /* 蜂鸣器提示 */
+            beep_short();       /* 蜂鸣器提示 */
         }
         
         if(key_val == KEY2_PRES)
         {
-            /* KEY2按下：通知蜂鸣器任务播放，同时执行系统重置 */
-            OSSemPost(g_beep_sem);
 
             /* 核心逻辑：倒计时置零并恢复正向计时 */
             cntd_m = 0;
@@ -344,7 +437,7 @@ static void TaskKey(void *pdata)
             beep_short();          /* 提供按键反馈音 */
         }
         
-        OSTimeDlyHMSM(0, 0, 0, 20);  /* 每20ms扫描一次按键，配合驱动内部去抖 */
+        OSTimeDlyHMSM(0, 0, 0, 5);   /* 精准的 5ms 定时周期，提供给连续采样消抖算法使用 */
     }
 }
 
@@ -368,43 +461,29 @@ static void TaskBeep(void *pdata)
     }
 }
 
-/* ======================== 倾斜监控任务 ======================== */
+/* ======================== 异常报警任务 ======================== */
 
-static void TaskTilt(void *pdata)
+static void TaskAlarm(void *pdata)
 {
     pdata = pdata;
-    uint8_t current_state;
-    uint16_t debug_cnt = 0;
-    uint8_t last_state = TILT_Read(); /* 使用真实的驱动接口记录初始状态 (1平放, 0倾斜) */
     
-    printf("[TILT Task] Monitoring state changes...\r\n");
+    printf("[Alarm Task] Monitoring AI status for LED blinking...\r\n");
 
     while (g_system_running)
     {
-        /* 调用 tilt.c 提供的读取接口 */
-        current_state = TILT_Read();
-
-        /* 检查状态是否发生了改变 */
-        if (current_state != last_state)
+        /* 根据 KNN 算法预测的结果，控制指示灯 */
+        if (g_ai_abnormal == 1)
         {
-            /* 调试打印：确认捕获到跳变 */
-            printf("[TILT] State Change Detected! New State: %d\r\n", current_state);
+            MSGLED2_TOGGLE();            /* 异常时：翻转 PE1 指示灯产生闪烁效果 */
+            beep_alarm();                  /* 同时发出报警声 */
+            OSTimeDlyHMSM(0, 0, 0, 200); /* 快闪，频率为 200ms */
             
-            MSGLED2(1);               /* 点亮 PE1 消息指示灯 (1为亮) */
-            OSTimeDlyHMSM(0, 0, 0, 500); /* 保持 500 毫秒 */
-            MSGLED2(0);               /* 熄灭指示灯 (0为灭) */
-            
-            last_state = current_state;  /* 更新上一次状态记录 */
         }
-        
-        /* 每隔约 2.5 秒打印一次原始状态 (50ms * 50) */
-        if (++debug_cnt >= 50)
+        else
         {
-            printf("[TILT Debug] Raw PB5 Sensor State: %d\r\n", current_state);
-            debug_cnt = 0;
+            MSGLED2(0);                  /* 正常时：确保 PE1 指示灯彻底熄灭 (0为灭) */
+            OSTimeDlyHMSM(0, 0, 0, 100); /* 正常状态下的低频轮询间隔 */
         }
-
-        OSTimeDlyHMSM(0, 0, 0, 50);      /* 50ms 轮询一次 */
     }
 }
 

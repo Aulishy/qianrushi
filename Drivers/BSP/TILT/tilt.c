@@ -32,10 +32,10 @@ uint8_t TILT_Read(void)
 
     if(HAL_GPIO_ReadPin(TILT_PORT, TILT_PIN) == 0)
     {
-        return TILT_NORMAL;   // 倒置
+        return TILT_STABLE;   // 平放
     }
     else
     {
-        return TILT_STABLE;   // 平放
+        return TILT_INCLINED;   // 倒置
     }
 }
